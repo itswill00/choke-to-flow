@@ -143,6 +143,7 @@ onMounted(async () => {
 </script>
 
 <template>
+  <div class="tab-root">
   <section class="panel">
     <div class="panel-head">
       <div>
@@ -230,5 +231,6 @@ onMounted(async () => {
         {{ busy ? 'Applying…' : 'Apply changes' }}
       </button>
     </div>
+  </div>
   </div>
 </template>

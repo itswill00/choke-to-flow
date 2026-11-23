@@ -73,6 +73,7 @@ onMounted(async () => {
 </script>
 
 <template>
+  <div class="tab-root">
   <section class="panel">
     <div class="panel-head">
       <div>
@@ -137,4 +138,5 @@ onMounted(async () => {
       </div>
     </div>
   </section>
+  </div>
 </template>
