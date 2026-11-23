@@ -23,6 +23,7 @@ cp "$MOD/module.prop" "$SANDBOX/module.prop"
 cp "$MOD/defaults/config.tsv" "$SANDBOX/state/config.tsv"
 printf '# key\tpath\tkind\n' > "$SANDBOX/state/targets.tsv"
 printf '# key\tvalue\n' > "$SANDBOX/state/baseline.tsv"
+printf '# key\toriginal\n' > "$SANDBOX/state/touched.tsv"
 printf '# key\tstatus\trequested\tactual\n' > "$SANDBOX/state/last_apply.tsv"
 
 cp "$HERE/fixtures/settings" "$WORK/bin/settings"
@@ -107,6 +108,9 @@ cfgval() {
 lastrow() {
     awk -F '\t' -v k="$1" '$1==k { print $2 "\t" $3 "\t" $4 }' "$SANDBOX/state/last_apply.tsv"
 }
+touchedval() {
+    awk -F '\t' -v k="$1" '$1==k { print $2 }' "$SANDBOX/state/touched.tsv"
+}
 
 # ----------------------------------------------------------------- tests ----
 section detect
@@ -169,6 +173,8 @@ eq "big applied (clamped)" "$(cat "$P6/scaling_max_freq")" "725000"
 eq "settings applied" "$("$TT_SETTINGS_BIN" get global window_animation_scale)" "0.5"
 eq "verify status" "$(lastrow cpu_little_max)" "$(printf 'OK\t2000000\t2000000')"
 eq "verify big status" "$(lastrow cpu_big_max)" "$(printf 'OK\t725000\t725000')"
+eq "touched records original" "$(touchedval cpu_little_max)" "1700000"
+eq "touched settings original" "$(touchedval anim_window)" "1.0"
 
 section restore-dry
 run_core_dry restore >/dev/null
@@ -176,7 +182,11 @@ eq "restore dry-run leaves little" "$(cat "$P0/scaling_max_freq")" "2000000"
 eq "restore dry-run leaves settings" "$("$TT_SETTINGS_BIN" get global window_animation_scale)" "0.5"
 
 section restore
+# A key the module never touched must survive restore, even if it drifted.
+mkfile "$ROOT/proc/sys/vm/swappiness" 120
 run_core restore >/dev/null
+eq "untouched key preserved" "$(cat "$ROOT/proc/sys/vm/swappiness")" "120"
+eq "touched list cleared" "$(grep -c -v '^#' "$SANDBOX/state/touched.tsv")" "0"
 eq "little restored" "$(cat "$P0/scaling_max_freq")" "1700000"
 eq "big restored" "$(cat "$P6/scaling_max_freq")" "1800000"
 eq "settings restored" "$("$TT_SETTINGS_BIN" get global window_animation_scale)" "1.0"
@@ -187,6 +197,10 @@ section auto-noop
 run_core apply >/dev/null
 eq "auto apply changes nothing" "$(cat "$P0/scaling_max_freq")" "1700000"
 eq "auto apply has no data rows" "$(grep -c -v '^#' "$SANDBOX/state/last_apply.tsv")" "0"
+
+section source-guard
+out=$(MODDIR="$SANDBOX" "$SH" -c '. "$0/lib/core.sh"; echo SOURCED_OK' "$SANDBOX")
+eq "sourcing core.sh is quiet" "$out" "SOURCED_OK"
 
 section telemetry
 out=$(run_core status)

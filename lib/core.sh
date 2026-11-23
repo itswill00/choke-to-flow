@@ -15,6 +15,7 @@ DEFAULTS="$MODDIR/defaults"
 CONFIG="$STATE/config.tsv"
 TARGETS="$STATE/targets.tsv"
 BASELINE="$STATE/baseline.tsv"
+TOUCHED="$STATE/touched.tsv"
 LOGFILE="$STATE/apply.log"
 
 mkdir -p "$STATE" 2>/dev/null
@@ -189,6 +190,23 @@ capture_baseline() {
     _log "baseline captured"
 }
 
+# ---------------------------------------------------------- touched keys ----
+# First time we actually write a key, remember its pre-write value. Restore
+# only replays keys we touched — never stock values the module left alone.
+record_touched() {
+    key="$1"; old="$2"
+    [ -f "$TOUCHED" ] || printf '# key\toriginal\n' > "$TOUCHED"
+    if awk -F '\t' -v k="$key" '$1==k {f=1} END{exit !f}' "$TOUCHED" 2>/dev/null; then
+        return 0
+    fi
+    if [ -z "$old" ]; then
+        [ "$(_lookup_kind "$key")" = settings ] && old='__unset__' || return 0
+    elif [ "$old" = null ] && [ "$(_lookup_kind "$key")" = settings ]; then
+        old='__unset__'
+    fi
+    printf '%s\t%s\n' "$key" "$old" >> "$TOUCHED"
+}
+
 # ----------------------------------------------------------------- config ---
 cmd_set() {
     key="$1"; mode="$2"; val="$3"
@@ -217,6 +235,9 @@ apply_all() {
         [ "$mode" = custom ] || continue
         new=$(clamp "$key" "$val") || continue
         old=$(read_target "$key")
+        if ! is_dry; then
+            record_touched "$key" "$old"
+        fi
         write_target "$key" "$new"
         after=$(read_target "$key")
         if is_dry; then
@@ -232,14 +253,21 @@ apply_all() {
 }
 
 restore_all() {
-    [ -f "$BASELINE" ] || return 0
+    src=""
+    if [ -f "$TOUCHED" ] && grep -q -v '^#' "$TOUCHED" 2>/dev/null; then
+        src="$TOUCHED"
+    elif [ -f "$BASELINE" ] && grep -q -v '^#' "$BASELINE" 2>/dev/null; then
+        src="$BASELINE"   # fallback for installs made before touched tracking
+    fi
+    [ -n "$src" ] || return 0
     while IFS="$TAB" read -r key val rest; do
         case "$key" in ''|\#*) continue ;; esac
         old=$(read_target "$key")
         write_target "$key" "$val"
         _log "restore $key: [$old] -> $val"
-    done < "$BASELINE"
+    done < "$src"
     if ! is_dry; then
+        printf '# key\toriginal\n' > "$TOUCHED" 2>/dev/null
         awk -F '\t' -v OFS='\t' 'BEGIN{print "# key","mode","value"} /^#/{next} {print $1,"auto",""}' \
             "$CONFIG" > "$CONFIG.t" 2>/dev/null && mv "$CONFIG.t" "$CONFIG" 2>/dev/null
         _log "config reset to auto"
@@ -252,7 +280,9 @@ f2() { awk -v v="$1" 'BEGIN{if(v==""||v=="NaN")print "?"; else printf "%.1f",v/1
 f1() { awk -v v="$1" 'BEGIN{if(v==""||v=="NaN")print "?"; else printf "%.1f",v/10}' 2>/dev/null; }
 
 telemetry() {
-    detect_targets >/dev/null 2>&1
+    if ! grep -q -v '^#' "$TARGETS" 2>/dev/null; then
+        detect_targets >/dev/null 2>&1
+    fi
     dev=$(getprop ro.product.brand 2>/dev/null)" "$(getprop ro.product.model 2>/dev/null)
     rom=$(getprop ro.build.version.incremental 2>/dev/null)
     up=$(cut -d' ' -f1 "$PROC/uptime" 2>/dev/null)
@@ -299,21 +329,25 @@ telemetry() {
     printf 'lsposed_hook_fail\t%s\n' "$fails"
 }
 
-if [ "${1:-}" = "--dry-run" ]; then
-    DRY_RUN=1
-    shift
-fi
+# Only dispatch when core.sh is executed directly — boot scripts source it.
+if [ "${0##*/}" = "core.sh" ]; then
+    if [ "${1:-}" = "--dry-run" ]; then
+        DRY_RUN=1
+        shift
+    fi
 
-case "$1" in
-    detect)     detect_targets; cat "$TARGETS" ;;
-    baseline)   capture_baseline; cat "$BASELINE" ;;
-    config)     cat "$CONFIG" ;;
-    apply)      apply_all ;;
-    restore)    restore_all ;;
-    set)        shift; cmd_set "$@" ;;
-    get)        shift; read_target "$@" ;;
-    bounds)     shift; bounds "$@" ;;
-    status)     telemetry ;;
-    last)       cat "$STATE/last_apply.tsv" 2>/dev/null ;;
-    *)          printf 'usage: core.sh detect|baseline|config|apply|restore|set KEY MODE VAL|get KEY|bounds KEY|status|last\n' ;;
-esac
+    case "$1" in
+        detect)     detect_targets; cat "$TARGETS" ;;
+        baseline)   capture_baseline; cat "$BASELINE" ;;
+        config)     cat "$CONFIG" ;;
+        apply)      apply_all ;;
+        restore)    restore_all ;;
+        set)        shift; cmd_set "$@" ;;
+        get)        shift; read_target "$@" ;;
+        bounds)     shift; bounds "$@" ;;
+        status)     telemetry ;;
+        last)       cat "$STATE/last_apply.tsv" 2>/dev/null ;;
+        touched)    cat "$TOUCHED" 2>/dev/null ;;
+        *)          printf 'usage: core.sh detect|baseline|config|apply|restore|set KEY MODE VAL|get KEY|bounds KEY|status|last|touched\n' ;;
+    esac
+fi

@@ -22,6 +22,9 @@ Status: prototype — belum diuji dengan install ke perangkat.
 - [ ] Uji hot-install & `build.sh push`
 
 ## Milestone 3 — Kualitas rilis komunitas
+- [x] WebUI redesign: inset/status-bar, layout console, telemetry & module tables
+- [x] Restore berbasis `touched.tsv` (tidak menimpa node yang tidak disentuh)
+- [x] `build.sh activate` + `push` yang preserve runtime state
 - [ ] Error handling SELinux saat write sysfs (notifikasi di WebUI)
 - [ ] Konfirmasi dua langkah untuk preset `Performance` & `Reset ke baseline`
 - [ ] Ekspor/impor config via file (selain clipboard)

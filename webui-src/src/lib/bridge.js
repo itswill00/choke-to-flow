@@ -66,7 +66,14 @@ async function discoverDir() {
   return '/data/adb/modules/' + KNOWN_ID
 }
 
-export async function initBridge() {
+let initPromise = null
+
+export function initBridge() {
+  if (!initPromise) initPromise = doInit()
+  return initPromise
+}
+
+async function doInit() {
   try {
     modDir.value = await discoverDir()
     const up = await core('status')

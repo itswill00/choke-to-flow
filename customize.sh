@@ -8,6 +8,7 @@ printf '%s' "$MODPATH" > "$MODPATH/webroot/moddir.txt" 2>/dev/null
 [ -f "$MODPATH/state/config.tsv" ] || cp "$MODPATH/defaults/config.tsv" "$MODPATH/state/config.tsv" 2>/dev/null
 printf '# key\tpath\tkind\n' > "$MODPATH/state/targets.tsv"
 printf '# key\tvalue\n' > "$MODPATH/state/baseline.tsv"
+printf '# key\toriginal\n' > "$MODPATH/state/touched.tsv"
 printf '# key\tstatus\trequested\tactual\n' > "$MODPATH/state/last_apply.tsv"
 
 set_perm_recursive "$MODPATH/lib" 0 0 0755 0644 2>/dev/null

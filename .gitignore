@@ -12,6 +12,7 @@ __pycache__/
 # Runtime-generated module state (per-device)
 state/targets.tsv
 state/baseline.tsv
+state/touched.tsv
 state/last_apply.tsv
 state/apply.log
 webroot/moddir.txt

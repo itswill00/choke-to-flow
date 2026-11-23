@@ -10,7 +10,7 @@ import AboutPanel from './components/AboutPanel.vue'
 const tabs = [
   { id: 'tuning', label: 'Tuning' },
   { id: 'telemetry', label: 'Telemetry' },
-  { id: 'hygiene', label: 'Module Hygiene' },
+  { id: 'modules', label: 'Modules' },
   { id: 'about', label: 'About' },
 ]
 const active = ref('tuning')
@@ -19,36 +19,38 @@ onMounted(initBridge)
 </script>
 
 <template>
-  <header class="hero">
-    <div class="hero-row">
-      <div class="logo">TT</div>
-      <div>
-        <h1>Choke to Flow</h1>
-        <div class="hero-sub">{{ deviceLine }}</div>
+  <div class="topbar">
+    <header class="appbar">
+      <div class="brand">
+        <div class="mark">C2F</div>
+        <div class="brand-text">
+          <div class="wordmark">Choke to Flow</div>
+          <div class="sub">System tuner · KernelSU / Magisk</div>
+        </div>
       </div>
-    </div>
-    <div class="hero-note">Dari <em>dicekik</em> jadi lancar. Default = AUTO, baseline otomatis dipulihkan saat uninstall / Reset.</div>
-  </header>
+      <div class="device-chip" :title="deviceLine">{{ deviceLine }}</div>
+    </header>
 
-  <nav class="tabs">
-    <button
-      v-for="t in tabs"
-      :key="t.id"
-      class="tabbtn"
-      :class="{ active: active === t.id }"
-      @click="active = t.id"
-    >{{ t.label }}</button>
-  </nav>
+    <nav class="segmented" role="tablist">
+      <button
+        v-for="t in tabs"
+        :key="t.id"
+        type="button"
+        :class="{ active: active === t.id }"
+        @click="active = t.id"
+      >{{ t.label }}</button>
+    </nav>
+  </div>
 
-  <main>
+  <main class="content">
     <TunePanel v-show="active === 'tuning'" />
     <TelemetryPanel v-show="active === 'telemetry'" :active="active === 'telemetry'" />
-    <HygienePanel v-show="active === 'hygiene'" />
+    <HygienePanel v-show="active === 'modules'" />
     <AboutPanel v-show="active === 'about'" />
   </main>
 
-  <div v-if="bridgeError" class="errbox" style="margin: 0 16px 16px">
-    {{ bridgeError }}
-  </div>
+  <footer class="footer">Reversible by design · no charging, thermal, LMK, or module kill switches</footer>
+
+  <div v-if="bridgeError" class="banner error">{{ bridgeError }}</div>
   <div v-if="toastMessage" class="toast">{{ toastMessage }}</div>
 </template>

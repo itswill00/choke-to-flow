@@ -60,7 +60,7 @@ run_tests() {
 
 dry_run() {
   require_root
-  [ -d "$TARGET" ] || { echo "ERR: modul belum terinstall. Pakai: $0 deploy"; exit 1; }
+  root "test -d '$TARGET/lib'" || { echo "ERR: modul belum terinstall. Pakai: $0 deploy"; exit 1; }
   echo "[dry] TT_DRY_RUN=1 — tidak menulis apa pun ke perangkat"
   root "TT_DRY_RUN=1 sh '$TARGET/lib/core.sh' apply"
   echo "[dry] report"
@@ -69,41 +69,78 @@ dry_run() {
 
 apply_now() {
   require_root
-  [ -d "$TARGET" ] || { echo "ERR: modul belum terinstall. Pakai: $0 deploy"; exit 1; }
+  root "test -d '$TARGET/lib'" || { echo "ERR: modul belum terinstall. Pakai: $0 deploy"; exit 1; }
   echo "[apply] $TARGET/lib/core.sh apply"
   root "sh '$TARGET/lib/core.sh' apply"
   echo "[verify] last_apply.tsv"
   root "sh '$TARGET/lib/core.sh' last"
 }
 
+# HyperCore-style activation: promote the staged module into the live dir,
+# clear the update flag, fix contexts, then run the hot-install entrypoint.
+activate_staged() {
+  require_root
+  upd="/data/adb/modules_update/$MODID"
+  if root "test -d '$TARGET/lib' && test ! -f '$TARGET/update'"; then
+    echo "[activate] sudah aktif: $TARGET"
+    return 0
+  fi
+  if ! root "test -d '$upd'"; then
+    echo "ERR: tidak ada staging di $upd" >&2
+    return 1
+  fi
+  echo "[activate] promote $upd -> $TARGET (tanpa reboot)"
+  root "
+    set -e
+    mkdir -p '$TARGET'
+    cp -a '$upd/.' '$TARGET/'
+    rm -f '$TARGET/update'
+    printf '%s' '$TARGET' > '$TARGET/webroot/moddir.txt'
+    chmod 755 '$TARGET'/*.sh 2>/dev/null || true
+    chmod 755 '$TARGET/lib/core.sh' 2>/dev/null || true
+    chmod 644 '$TARGET/module.prop' '$TARGET/skip_mount' 2>/dev/null || true
+    chmod -R a+rX '$TARGET/webroot' '$TARGET/state' '$TARGET/defaults' '$TARGET/lib'
+    chcon -R u:object_r:system_file:s0 '$TARGET' 2>/dev/null || true
+    rm -rf '$upd'
+  "
+  root "sh '$TARGET/hotinstall.sh'"
+}
+
 deploy() {
   require_root
   make_zip
   echo "[deploy] ksud module install '$ZIP'"
-  echo "         customize.sh meminta hot-install -> seharusnya tanpa reboot."
   root "ksud module install '$ZIP'"
-  echo "[done] cek WebUI / 'build.sh status' untuk memastikan."
+  if root "test -f '$TARGET/update' || test -d '/data/adb/modules_update/$MODID'"; then
+    echo "[deploy] installer cuma staging (meta-mm) -> promoting tanpa reboot"
+    activate_staged
+  else
+    echo "[deploy] hot install langsung aktif"
+  fi
+  echo "[verify] last_apply.tsv"
+  root "sh '$TARGET/lib/core.sh' last"
+  echo "[done] buka WebUI modul di manager."
 }
 
 push_files() {
   require_root
-  [ -d "$TARGET" ] || { echo "ERR: modul belum terinstall. Pakai: $0 deploy"; exit 1; }
+  root "test -d '$TARGET/lib'" || { echo "ERR: modul belum terinstall. Pakai: $0 deploy"; exit 1; }
   build_ui
   echo "[push] sync workspace -> $TARGET (tanpa install ulang, tanpa reboot)"
   root "$PY '$HERE/tools/sync.py' '$HERE' '$TARGET'"
-  root "chcon -R --reference='$TARGET/module.prop' '$TARGET' 2>/dev/null || true"
+  root "chcon -R u:object_r:system_file:s0 '$TARGET' 2>/dev/null || true"
   apply_now
 }
 
 show_status() {
   require_root
-  [ -d "$TARGET" ] || { echo "modul belum terinstall di $TARGET"; exit 0; }
+  root "test -d '$TARGET'" || { echo "modul belum terinstall di $TARGET"; exit 0; }
   root "sh '$TARGET/lib/core.sh' status"
 }
 
 show_log() {
   require_root
-  [ -d "$TARGET" ] || { echo "modul belum terinstall di $TARGET"; exit 0; }
+  root "test -d '$TARGET'" || { echo "modul belum terinstall di $TARGET"; exit 0; }
   root "tail -n 40 '$TARGET/state/apply.log'"
 }
 
@@ -111,7 +148,7 @@ check() {
   echo "workspace : $HERE"
   echo "module id : $MODID"
   echo "target    : $TARGET"
-  if [ -d "$TARGET" ]; then echo "installed : YES"; else echo "installed : NO"; fi
+  if root "test -d '$TARGET'"; then echo "installed : YES"; else echo "installed : NO"; fi
   echo "zip       : $ZIP"
   if [ -f "$HERE/webroot/index.html" ]; then echo "webui     : built"; else echo "webui     : MISSING"; fi
   if root 'id -u' >/dev/null 2>&1; then echo "root      : YES"; else echo "root      : NO"; fi
@@ -125,7 +162,8 @@ Usage:
   ./build.sh test       Jalankan test harness offline (tanpa root / tanpa perangkat)
   ./build.sh build      Build WebUI Vue saja (npm run build -> webroot/)
   ./build.sh package    Build + ZIP flashable + .sha256 di $ZIP
-  ./build.sh deploy     Build + ZIP + ksud module install (hot install, tanpa reboot)
+  ./build.sh deploy     Build + ZIP + install + promote staged (tanpa reboot)
+  ./build.sh activate   Promote /data/adb/modules_update/<id> ke live + hotinstall
   ./build.sh push       Sync file workspace ke modul yang SUDAH terinstall + apply
                         (paling cepat untuk update WebUI/script, tanpa reboot)
   ./build.sh apply      Jalankan core.sh apply di modul terinstall + tampilkan hasilnya
@@ -144,6 +182,7 @@ case "${1:-help}" in
   build)              build_ui ;;
   package|zip)        make_zip ;;
   deploy|install)     deploy ;;
+  activate|promote)   activate_staged ;;
   push|sync)          push_files ;;
   apply)              apply_now ;;
   dry)                dry_run ;;

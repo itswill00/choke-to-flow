@@ -51,8 +51,9 @@ choke-to-flow/
 ./build.sh test       # test harness offline (tanpa root, tanpa perangkat)
 ./build.sh build      # compile WebUI saja
 ./build.sh package    # build + ZIP flashable + .sha256
-./build.sh deploy     # build + ZIP + ksud module install (hot install, tanpa reboot)
-./build.sh push       # sync file ke modul yang sudah terinstall + apply (tanpa reboot)
+./build.sh deploy     # build + ZIP + install + promote staged (tanpa reboot)
+./build.sh activate   # promote /data/adb/modules_update/<id> ke live + hotinstall
+./build.sh push       # sync ke modul terinstall + apply (tanpa reboot, state aman)
 ./build.sh apply      # apply + tampilkan hasil verifikasi
 ./build.sh dry        # simulasi apply (TT_DRY_RUN=1), nol tulisan ke perangkat
 ./build.sh status     # telemetry
@@ -65,7 +66,7 @@ choke-to-flow/
 `tests/run.sh` membangun **fake sysfs + fake `settings`** di direktori temp, lalu menguji `detect`, `bounds`, clamp, baseline, `apply`, dry-run, `restore`, dan telemetry. Tidak butuh root dan tidak menyentuh perangkat.
 
 ```sh
-sh tests/run.sh        # 47 assertion
+sh tests/run.sh        # 52 assertion
 ```
 
 Environment hooks yang dipakai harness (kosong = perangkat asli):
@@ -81,11 +82,14 @@ Environment hooks yang dipakai harness (kosong = perangkat asli):
 
 ## WebUI
 
-- **Tuning** — toggle AUTO/CUSTOM + slider & angka, lalu **Apply now**.
+Vue 3 SFC yang di-compile, UI bahasa Inggris teknis, dan status bar mengikuti inset KernelSU
+(`mui.kernelsu.org/internal/insets.css`) supaya warna top bar menyatu.
+
+- **Tuning** — row per parameter, toggle AUTO/CUSTOM, slider + input, action bar `Apply changes`.
 - **Presets** — `Stock / AUTO`, `Balanced`, `Performance`. Hanya mengisi form.
-- **Telemetry** — suhu, zram, frekuensi, arus cas, jumlah modul, jumlah `Hook Failed`.
-- **Module Hygiene** — daftar modul (read-only, tidak ada tombol disable).
-- **About** — config, baseline, dan hasil apply terakhir.
+- **Telemetry** — grup Thermal/Memory/CPU/Power/System, live 8 detik (bisa pause), raw output.
+- **Modules** — tabel read-only + indikator `Hook failures`; tidak ada tombol disable.
+- **About** — versi modul, link repo, config/baseline/touched/last-apply, copy config.
 
 ## Parameter
 
@@ -102,11 +106,29 @@ Environment hooks yang dipakai harness (kosong = perangkat asli):
 Prototype. Validasi yang sudah lewat:
 
 - `sh -n` untuk semua skrip (BusyBox ash di Termux, `sh` di CI).
-- **47 assertion** offline di `tests/run.sh`: detect, bounds, clamp, baseline, dry-run, apply, restore, telemetry.
+- **52 assertion** offline di `tests/run.sh`: detect, bounds, clamp, baseline, touched, dry-run, apply, restore, source-guard, telemetry.
 - Clamp diuji: input `99999999` → `2000000`; input `1` → `725000`.
 - Mode invalid & key tak dikenal ditolak.
+- Restore hanya me-replay key yang pernah ditulis (`touched.tsv`); node stock yang tidak disentuh tidak pernah ditimpa.
 - Baseline `null` → sentinel `__unset__`, restore memakai `settings delete`.
+- `build.sh push` tidak menimpa `state/` runtime dan membersihkan aset `webroot` lama.
 - Build Vite + path aset relatif (`./assets/...`), CI build & package + checksum.
+
+## Runtime state
+
+| File | Fungsi |
+|---|---|
+| `state/config.tsv` | preferensi user (mode AUTO/CUSTOM + value) |
+| `state/targets.tsv` | path hasil deteksi runtime |
+| `state/baseline.tsv` | snapshot nilai saat first boot (display + fallback) |
+| `state/touched.tsv` | nilai pre-write per key; **sumber restore yang sebenarnya** |
+| `state/last_apply.tsv` | verifikasi `OK` / `FAIL` / `DRY` per apply |
+| `state/apply.log` | log apply/restore/detect |
+
+## Credits
+
+Arah teknis inset/status-bar dipelajari dari **Encore** (Rem01Gaming) sebagai referensi desain.
+Tidak ada kode atau aset Encore yang disalin.
 
 **Belum diuji dengan install ke perangkat.** Belum ada perubahan sysfs/settings yang dilakukan selama pengembangan.
 

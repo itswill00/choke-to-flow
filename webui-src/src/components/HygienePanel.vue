@@ -1,18 +1,28 @@
 <script setup>
-import { onMounted, ref } from 'vue'
-import { core, exec, modDir, parseTSV } from '../lib/bridge'
+import { computed, onMounted, ref } from 'vue'
+import { core, exec, initBridge, modDir, parseTSV } from '../lib/bridge'
 
 const modules = ref([])
-const count = ref('—')
 const hookFails = ref('—')
+
 const SUSPECT = ['zygisk', 'lsposed', 'hyperceiler', 'hma', 'teesim', 'detach', 'integrity', 'deviceid']
 
-function isSuspect(id) {
-  return SUSPECT.some((s) => String(id).toLowerCase().includes(s))
-}
+const activeCount = computed(() => modules.value.filter((m) => m.state === 'ACTIVE').length)
+const flaggedCount = computed(
+  () => modules.value.filter((m) => m.flag && m.state === 'ACTIVE').length,
+)
+const sorted = computed(() =>
+  [...modules.value].sort((a, b) => {
+    const fa = a.flag && a.state === 'ACTIVE' ? 0 : a.state === 'ACTIVE' ? 1 : 2
+    const fb = b.flag && b.state === 'ACTIVE' ? 0 : b.state === 'ACTIVE' ? 1 : 2
+    return fa - fb || a.name.localeCompare(b.name)
+  }),
+)
+
+const isSuspect = (id) => SUSPECT.some((s) => String(id).toLowerCase().includes(s))
 
 async function load() {
-  const parent = modDir.value.replace(/\/[^\/]+$/, '')
+  const parent = modDir.value.replace(/\/[^/]+$/, '')
   const cmd =
     'for f in ' + parent + '/*/module.prop; do ' +
     'id=$(grep -m1 "^id=" "$f" | cut -d= -f2-); ' +
@@ -23,47 +33,89 @@ async function load() {
   try {
     const out = await exec(cmd)
     modules.value = parseTSV(out).map((r) => ({
-      id: r[0] || '?', name: r[1] || r[0], version: r[2] || '', state: r[3] || '',
+      id: r[0] || '?',
+      name: r[1] || r[0],
+      version: r[2] || '',
+      state: r[3] || '',
       flag: isSuspect(r[0]),
     }))
-    count.value = String(modules.value.length)
     const st = parseTSV(await core('status'))
     const row = st.find((r) => r[0] === 'lsposed_hook_fail')
     hookFails.value = row ? row.slice(1).join('') : '—'
-  } catch (_) { /* leave placeholders */ }
+  } catch (_) {
+    /* keep placeholders */
+  }
 }
 
-onMounted(load)
+onMounted(async () => {
+  await initBridge()
+  await load()
+})
 </script>
 
 <template>
-  <div class="card">
-    <div class="card-head">
+  <section class="panel">
+    <div class="panel-head">
       <div>
-        <h2>Installed modules</h2>
-        <p class="muted">Daftar saja. Modul ini <b>tidak pernah</b> menonaktifkan modul lain.</p>
+        <div class="panel-title">Modules</div>
+        <div class="panel-sub">Read-only inventory. This module never disables or reorders another module.</div>
       </div>
-      <span class="pill">{{ count }} modul</span>
+      <span class="pill">{{ modules.length }} installed</span>
     </div>
-    <div class="mods">
-      <div v-for="m in modules" :key="m.id" class="mod" :class="{ flag: m.flag && m.state === 'ACTIVE' }">
-        <div>
-          <div class="nm">{{ m.name }}</div>
-          <div class="id">{{ m.id }} <span v-if="m.version"> · {{ m.version }}</span></div>
+    <div class="panel-body">
+      <div class="summary-grid">
+        <div class="summary-cell">
+          <div class="k">Active</div>
+          <div class="v">{{ activeCount }}</div>
         </div>
-        <span class="pill" :style="m.state === 'DISABLED' ? '' : 'color:var(--accent)'">{{ m.state }}</span>
+        <div class="summary-cell">
+          <div class="k">Highlighted</div>
+          <div class="v" :class="{ warn: flaggedCount > 0 }">{{ flaggedCount }}</div>
+        </div>
+        <div class="summary-cell">
+          <div class="k">Hook failures</div>
+          <div class="v" :class="{ warn: Number(hookFails) > 0 }">{{ hookFails }}</div>
+        </div>
       </div>
-      <div v-if="!modules.length" class="loading">Memuat…</div>
-    </div>
-  </div>
 
-  <div class="card warn">
-    <h2>Catatan penting</h2>
-    <p>
-      Modul ber-highlight kuning karena <b>Hook Failed</b> tercatat {{ hookFails }} kali pada boot ini
-      (dari log LSPosed). Kombinasi HyperCeiler + beberapa backend Zygisk aktif bersamaan
-      memberi beban nyata ke <code>system_server</code>.
-    </p>
-    <p class="muted">Modul ini tidak menyentuhnya — matikan / sesuaikan manual lewat manager. Arus pengisian juga sengaja tidak disentuh (urusan safety BMS).</p>
-  </div>
+      <div class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Module</th>
+              <th>ID</th>
+              <th>Version</th>
+              <th>State</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              v-for="m in sorted"
+              :key="m.id"
+              :class="{ flagged: m.flag && m.state === 'ACTIVE' }"
+            >
+              <td>
+                {{ m.name }}
+                <span v-if="m.flag && m.state === 'ACTIVE'" class="pill flag" style="margin-left:6px">hook</span>
+              </td>
+              <td class="id">{{ m.id }}</td>
+              <td class="muted">{{ m.version || '—' }}</td>
+              <td>
+                <span class="pill" :class="m.state === 'ACTIVE' ? 'active' : 'disabled'">
+                  {{ m.state || '—' }}
+                </span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <div v-if="!modules.length" class="state">Loading modules…</div>
+      </div>
+
+      <div class="note" style="margin-top: 14px">
+        Modules marked <b>hook</b> are listed because they matched known hooking frameworks.
+        LSPosed reported {{ hookFails }} hook failures in the current boot. Review them manually
+        in your root manager — this screen intentionally has no disable action.
+      </div>
+    </div>
+  </section>
 </template>
