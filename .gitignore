@@ -1,0 +1,20 @@
+# Build artifacts
+node_modules/
+*.zip
+*.tgz
+.webpack/
+
+# Python
+__pycache__/
+*.pyc
+
+# Runtime-generated module state (per-device)
+state/targets.tsv
+state/baseline.tsv
+state/last_apply.tsv
+state/apply.log
+webroot/moddir.txt
+
+# Editor / OS
+.DS_Store
+*.swp

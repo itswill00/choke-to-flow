@@ -1,0 +1,10 @@
+# key	mode	value
+cpu_little_max	auto	
+cpu_little_min	auto	
+cpu_big_max	auto	
+cpu_big_min	auto	
+gpu_max	auto	
+swappiness	auto	
+anim_window	auto	
+anim_transition	auto	
+animator_duration	auto	

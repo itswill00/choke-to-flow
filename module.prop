@@ -1,0 +1,6 @@
+id=choke-to-flow
+name=Choke to Flow
+version=1.0.0
+versionCode=10000
+author=itswill00
+description=Adjustable, reversible kernel/settings tuner with compiled Vue WebUI. No charging limits, no module kill switches.
