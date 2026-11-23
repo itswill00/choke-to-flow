@@ -1,5 +1,7 @@
 # Choke to Flow
 
+[![ci](https://github.com/itswill00/choke-to-flow/actions/workflows/ci.yml/badge.svg)](https://github.com/itswill00/choke-to-flow/actions/workflows/ci.yml)
+
 > *Dari dicekik jadi lancar.*
 
 Modul KernelSU (kompatibel Magisk) untuk tuning **adjustable + reversible** pada Redmi Note 13 5G / **tanzanite** (MT6789) dan sekitarnya. WebUI-nya ditulis dengan Vue SFC lalu di-compile jadi aset statis lokal — tanpa CDN, tanpa runtime template compiler.
@@ -36,7 +38,9 @@ choke-to-flow/
 ├── state/                # runtime (diabaikan git, dibuat installer)
 ├── webroot/              # HASIL BUILD Vue — jangan edit manual
 ├── webui-src/            # source Vue (.vue)
+├── tests/                # test harness offline (fake sysfs + fake settings)
 ├── tools/sync.py         # sync workspace -> modul terinstall
+├── .github/workflows/    # CI: test, build, package, artifact
 ├── LICENSE
 └── ROADMAP.md
 ```
@@ -44,15 +48,36 @@ choke-to-flow/
 ## Build & deploy
 
 ```sh
+./build.sh test       # test harness offline (tanpa root, tanpa perangkat)
 ./build.sh build      # compile WebUI saja
-./build.sh package    # build + ZIP flashable
+./build.sh package    # build + ZIP flashable + .sha256
 ./build.sh deploy     # build + ZIP + ksud module install (hot install, tanpa reboot)
 ./build.sh push       # sync file ke modul yang sudah terinstall + apply (tanpa reboot)
 ./build.sh apply      # apply + tampilkan hasil verifikasi
+./build.sh dry        # simulasi apply (TT_DRY_RUN=1), nol tulisan ke perangkat
 ./build.sh status     # telemetry
 ./build.sh log        # tail apply.log
 ./build.sh check      # cek workspace/target/root
 ```
+
+## Testing offline
+
+`tests/run.sh` membangun **fake sysfs + fake `settings`** di direktori temp, lalu menguji `detect`, `bounds`, clamp, baseline, `apply`, dry-run, `restore`, dan telemetry. Tidak butuh root dan tidak menyentuh perangkat.
+
+```sh
+sh tests/run.sh        # 47 assertion
+```
+
+Environment hooks yang dipakai harness (kosong = perangkat asli):
+
+| Var | Fungsi |
+|---|---|
+| `TT_ROOT` | prefix untuk `/sys`, `/proc`, `/data/adb` |
+| `TT_SETTINGS_BIN` | binary `settings` alternatif |
+| `TT_SETTINGS_DB` | DB untuk fake `settings` |
+| `TT_DRY_RUN=1` | `write_target` hanya mencetak niat, tidak menulis |
+
+`TT_DRY_RUN=1 sh lib/core.sh apply` juga bisa dipakai langsung di perangkat untuk simulasi.
 
 ## WebUI
 
@@ -74,7 +99,14 @@ choke-to-flow/
 
 ## Status saat ini
 
-Prototype. Validasi yang sudah lewat: `sh -n` BusyBox ash untuk semua skrip; tes read-only (`detect`, `baseline`, `bounds`, `get`, `status`) pada salinan workspace; clamp otomatis; penolakan mode invalid; konversi suhu power_supply; build Vite + path aset relatif.
+Prototype. Validasi yang sudah lewat:
+
+- `sh -n` untuk semua skrip (BusyBox ash di Termux, `sh` di CI).
+- **47 assertion** offline di `tests/run.sh`: detect, bounds, clamp, baseline, dry-run, apply, restore, telemetry.
+- Clamp diuji: input `99999999` → `2000000`; input `1` → `725000`.
+- Mode invalid & key tak dikenal ditolak.
+- Baseline `null` → sentinel `__unset__`, restore memakai `settings delete`.
+- Build Vite + path aset relatif (`./assets/...`), CI build & package + checksum.
 
 **Belum diuji dengan install ke perangkat.** Belum ada perubahan sysfs/settings yang dilakukan selama pengembangan.
 

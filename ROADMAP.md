@@ -7,11 +7,11 @@ Status: prototype — belum diuji dengan install ke perangkat.
 - [x] Repo GitHub `itswill00/choke-to-flow`
 - [x] LICENSE, README, build helper
 
-## Milestone 1 — Test harness
-- [ ] Fake sysfs tree untuk uji `detect` / `bounds` / `apply` / `restore` tanpa perangkat
-- [ ] Mode `dry-run` di `core.sh` (cetak aksi, jangan tulis)
-- [ ] Test otomatis: clamp, mode invalid, baseline null sentinel, restore
-- [ ] CI job yang menjalankan tes + build ZIP + checksum
+## Milestone 1 — Test harness ✅
+- [x] Fake sysfs tree untuk uji `detect` / `bounds` / `apply` / `restore` tanpa perangkat
+- [x] Mode `dry-run` di `core.sh` (cetak aksi, jangan tulis)
+- [x] Test otomatis: clamp, mode invalid, baseline null sentinel, restore (47 assertion)
+- [x] CI job yang menjalankan tes + build ZIP + checksum
 
 ## Milestone 2 — Uji nyata (butuh izin eksplisit)
 - [ ] Install via KernelSU manager / `build.sh deploy`

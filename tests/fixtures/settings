@@ -1,0 +1,34 @@
+#!/bin/sh
+# Minimal fake of Android's `settings` CLI for the offline test harness.
+# Backed by a TSV file in $TT_SETTINGS_DB.
+DB="${TT_SETTINGS_DB:?TT_SETTINGS_DB not set}"
+[ -f "$DB" ] || : > "$DB"
+
+verb="${1:-}"
+ns="${2:-}"
+key="${3:-}"
+val="${4:-}"
+
+case "$verb" in
+    get)
+        awk -F '\t' -v k="$key" '
+            $1==k { print $2; found=1 }
+            END   { if (!found) print "null" }
+        ' "$DB"
+        ;;
+    put)
+        awk -F '\t' -v k="$key" -v v="$val" '
+            BEGIN { done=0 }
+            $1==k { print k "\t" v; done=1; next }
+                  { print }
+            END   { if (!done) print k "\t" v }
+        ' "$DB" > "$DB.t" && mv "$DB.t" "$DB"
+        ;;
+    delete)
+        awk -F '\t' -v k="$key" '$1!=k' "$DB" > "$DB.t" && mv "$DB.t" "$DB"
+        ;;
+    *)
+        printf 'fake settings: unsupported verb: %s\n' "$verb" >&2
+        exit 2
+        ;;
+esac

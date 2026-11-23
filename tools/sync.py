@@ -8,8 +8,8 @@ import os
 import shutil
 import sys
 
-SKIP_DIRS = {"webui-src", "node_modules", "__pycache__", ".git"}
-SKIP_FILES = {"build.sh"}
+SKIP_DIRS = {"webui-src", "node_modules", "__pycache__", ".git", ".github", "tests", "tools"}
+SKIP_FILES = {"build.sh", "README.md", "ROADMAP.md", "CHANGELOG.md", "LICENSE", ".gitignore"}
 EXECUTABLES = {
     "service.sh", "boot-completed.sh", "hotinstall.sh",
     "action.sh", "uninstall.sh", "customize.sh", "lib/core.sh",

@@ -21,6 +21,17 @@ mkdir -p "$STATE" 2>/dev/null
 
 TAB=$(printf '\t')
 
+# ---------------------------------------------------- testability hooks ------
+# Empty/unset on a real device. Tests point these at a sandbox tree.
+ROOT_PREFIX="${TT_ROOT:-}"
+SYS="$ROOT_PREFIX/sys"
+PROC="$ROOT_PREFIX/proc"
+ADB="$ROOT_PREFIX/data/adb"
+SETTINGS_BIN="${TT_SETTINGS_BIN:-settings}"
+DRY_RUN="${TT_DRY_RUN:-0}"
+
+is_dry() { [ "$DRY_RUN" = 1 ]; }
+
 _log() {
     printf '%s %s\n' "$(date '+%F %T')" "$*" >> "$LOGFILE" 2>/dev/null || return 0
     n=$(wc -l < "$LOGFILE" 2>/dev/null)
@@ -49,7 +60,7 @@ detect_targets() {
 
     plist="$STATE/.policies"
     : > "$plist"
-    for p in /sys/devices/system/cpu/cpufreq/policy*; do
+    for p in "$SYS"/devices/system/cpu/cpufreq/policy*; do
         [ -r "$p/cpuinfo_max_freq" ] || continue
         m=$(cat "$p/cpuinfo_max_freq" 2>/dev/null)
         [ -n "$m" ] && printf '%s\t%s\n' "$m" "$p" >> "$plist"
@@ -72,7 +83,7 @@ detect_targets() {
         fi
 
         gpu=""
-        for d in /sys/class/devfreq/*; do
+        for d in "$SYS"/class/devfreq/*; do
             [ -r "$d/name" ] || continue
             n=$(cat "$d/name" 2>/dev/null)
             case "$n" in
@@ -83,8 +94,8 @@ detect_targets() {
             printf '%s\t%s\t%s\n' gpu_max "$gpu/max_freq" freq
         fi
 
-        [ -e /proc/sys/vm/swappiness ] && \
-            printf '%s\t%s\t%s\n' swappiness /proc/sys/vm/swappiness int
+        [ -e "$PROC/sys/vm/swappiness" ] && \
+            printf '%s\t%s\t%s\n' swappiness "$PROC/sys/vm/swappiness" int
 
         printf '%s\t%s\t%s\n' anim_window window_animation_scale settings
         printf '%s\t%s\t%s\n' anim_transition transition_animation_scale settings
@@ -101,7 +112,7 @@ read_target() {
     path=$(_lookup "$key"); kind=$(_lookup_kind "$key")
     [ -z "$path" ] && return 1
     case "$kind" in
-        settings) settings get global "$path" 2>/dev/null ;;
+        settings) "$SETTINGS_BIN" get global "$path" 2>/dev/null ;;
         *) cat "$path" 2>/dev/null ;;
     esac
 }
@@ -110,12 +121,17 @@ write_target() {
     key="$1"; val="$2"
     path=$(_lookup "$key"); kind=$(_lookup_kind "$key")
     [ -z "$path" ] && return 1
+    if is_dry; then
+        printf 'DRY would write %s <- %s\n' "$path" "$val"
+        _log "dry-run: would write $path <- $val"
+        return 0
+    fi
     case "$kind" in
         settings)
             if [ "$val" = '__unset__' ]; then
-                settings delete global "$path" >/dev/null 2>&1
+                "$SETTINGS_BIN" delete global "$path" >/dev/null 2>&1
             else
-                settings put global "$path" "$val" >/dev/null 2>&1
+                "$SETTINGS_BIN" put global "$path" "$val" >/dev/null 2>&1
             fi
             ;;
         *) printf '%s\n' "$val" > "$path" 2>/dev/null ;;
@@ -203,7 +219,13 @@ apply_all() {
         old=$(read_target "$key")
         write_target "$key" "$new"
         after=$(read_target "$key")
-        if [ "$after" = "$new" ]; then st=OK; else st=FAIL; fi
+        if is_dry; then
+            st=DRY
+        elif [ "$after" = "$new" ]; then
+            st=OK
+        else
+            st=FAIL
+        fi
         printf '%s\t%s\t%s\t%s\n' "$key" "$st" "$new" "$after" >> "$STATE/last_apply.tsv"
         _log "apply $key: [$old] -> $new ($st)"
     done < "$CONFIG"
@@ -217,9 +239,11 @@ restore_all() {
         write_target "$key" "$val"
         _log "restore $key: [$old] -> $val"
     done < "$BASELINE"
-    awk -F '\t' -v OFS='\t' 'BEGIN{print "# key","mode","value"} /^#/{next} {print $1,"auto",""}' \
-        "$CONFIG" > "$CONFIG.t" 2>/dev/null && mv "$CONFIG.t" "$CONFIG" 2>/dev/null
-    _log "config reset to auto"
+    if ! is_dry; then
+        awk -F '\t' -v OFS='\t' 'BEGIN{print "# key","mode","value"} /^#/{next} {print $1,"auto",""}' \
+            "$CONFIG" > "$CONFIG.t" 2>/dev/null && mv "$CONFIG.t" "$CONFIG" 2>/dev/null
+        _log "config reset to auto"
+    fi
 }
 
 # -------------------------------------------------------------- telemetry ---
@@ -231,25 +255,25 @@ telemetry() {
     detect_targets >/dev/null 2>&1
     dev=$(getprop ro.product.brand 2>/dev/null)" "$(getprop ro.product.model 2>/dev/null)
     rom=$(getprop ro.build.version.incremental 2>/dev/null)
-    up=$(cut -d' ' -f1 /proc/uptime 2>/dev/null)
-    load=$(cut -d' ' -f1-3 /proc/loadavg 2>/dev/null)
-    soc=$(f2 "$(cat /sys/class/thermal/thermal_zone0/temp 2>/dev/null)")
-    skin=$(f2 "$(cat /sys/class/thermal/thermal_zone16/temp 2>/dev/null)")
-    batt=$(f1 "$(cat /sys/class/power_supply/battery/temp 2>/dev/null)")
-    zt=$(awk '/SwapTotal/{t=$2}/SwapFree/{f=$2}END{print t-f}' /proc/meminfo 2>/dev/null)
-    zf=$(awk '/SwapTotal/{print $2}' /proc/meminfo 2>/dev/null)
-    ma=$(awk '/MemAvailable/{print $2}' /proc/meminfo 2>/dev/null)
-    mf=$(awk '/MemFree/{print $2}' /proc/meminfo 2>/dev/null)
+    up=$(cut -d' ' -f1 "$PROC/uptime" 2>/dev/null)
+    load=$(cut -d' ' -f1-3 "$PROC/loadavg" 2>/dev/null)
+    soc=$(f2 "$(cat "$SYS/class/thermal/thermal_zone0/temp" 2>/dev/null)")
+    skin=$(f2 "$(cat "$SYS/class/thermal/thermal_zone16/temp" 2>/dev/null)")
+    batt=$(f1 "$(cat "$SYS/class/power_supply/battery/temp" 2>/dev/null)")
+    zt=$(awk '/SwapTotal/{t=$2}/SwapFree/{f=$2}END{print t-f}' "$PROC/meminfo" 2>/dev/null)
+    zf=$(awk '/SwapTotal/{print $2}' "$PROC/meminfo" 2>/dev/null)
+    ma=$(awk '/MemAvailable/{print $2}' "$PROC/meminfo" 2>/dev/null)
+    mf=$(awk '/MemFree/{print $2}' "$PROC/meminfo" 2>/dev/null)
     p0=$(_lookup cpu_little_max); p1=$(_lookup cpu_big_max)
     d0=${p0%/scaling_max_freq}; d1=${p1%/scaling_max_freq}
     f0=$(cat "$d0/scaling_cur_freq" 2>/dev/null); c0=$(cat "$d0/scaling_max_freq" 2>/dev/null)
     f1=$(cat "$d1/scaling_cur_freq" 2>/dev/null); c1=$(cat "$d1/scaling_max_freq" 2>/dev/null)
     h0=$(cat "$d0/cpuinfo_max_freq" 2>/dev/null); h1=$(cat "$d1/cpuinfo_max_freq" 2>/dev/null)
-    cur=$(cat /sys/class/power_supply/battery/current_now 2>/dev/null)
-    cap=$(cat /sys/class/power_supply/battery/capacity 2>/dev/null)
-    cl=$(grep -m1 POWER_SUPPLY_CHARGE_CONTROL_LIMIT= /sys/class/power_supply/battery/uevent 2>/dev/null | cut -d= -f2)
-    mods=$(ls -d /data/adb/modules/*/ 2>/dev/null | wc -l)
-    fails=$(grep -h -c 'Hook Failed' /data/adb/lspd/log/modules_*.log 2>/dev/null | awk -F: '{s+=$NF} END{print s+0}')
+    cur=$(cat "$SYS/class/power_supply/battery/current_now" 2>/dev/null)
+    cap=$(cat "$SYS/class/power_supply/battery/capacity" 2>/dev/null)
+    cl=$(grep -m1 POWER_SUPPLY_CHARGE_CONTROL_LIMIT= "$SYS/class/power_supply/battery/uevent" 2>/dev/null | cut -d= -f2)
+    mods=$(ls -d "$ADB"/modules/*/ 2>/dev/null | wc -l)
+    fails=$(grep -h -c 'Hook Failed' "$ADB"/lspd/log/modules_*.log 2>/dev/null | awk -F: '{s+=$NF} END{print s+0}')
 
     printf 'device\t%s\n' "$dev"
     printf 'rom\t%s\n' "$rom"
@@ -274,6 +298,11 @@ telemetry() {
     printf 'module_count\t%s\n' "$mods"
     printf 'lsposed_hook_fail\t%s\n' "$fails"
 }
+
+if [ "${1:-}" = "--dry-run" ]; then
+    DRY_RUN=1
+    shift
+fi
 
 case "$1" in
     detect)     detect_targets; cat "$TARGETS" ;;

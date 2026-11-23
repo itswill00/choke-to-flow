@@ -1,6 +1,7 @@
 # Build artifacts
 node_modules/
 *.zip
+*.zip.sha256
 *.tgz
 .webpack/
 
